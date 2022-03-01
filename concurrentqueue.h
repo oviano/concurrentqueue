@@ -815,7 +815,8 @@ public:
 		producerCount(0),
 		initialBlockPoolIndex(0),
 		nextExplicitConsumerId(0),
-		globalExplicitConsumerOffset(0)
+		globalExplicitConsumerOffset(0),
+        maxItemCount(0)
 	{
 		implicitProducerHashResizeInProgress.clear(std::memory_order_relaxed);
 		populate_initial_implicit_producer_hash();
@@ -839,7 +840,8 @@ public:
 		producerCount(0),
 		initialBlockPoolIndex(0),
 		nextExplicitConsumerId(0),
-		globalExplicitConsumerOffset(0)
+		globalExplicitConsumerOffset(0),
+        maxItemCount(0)
 	{
 		implicitProducerHashResizeInProgress.clear(std::memory_order_relaxed);
 		populate_initial_implicit_producer_hash();
@@ -916,7 +918,8 @@ public:
 		initialBlockPoolSize(other.initialBlockPoolSize),
 		freeList(std::move(other.freeList)),
 		nextExplicitConsumerId(other.nextExplicitConsumerId.load(std::memory_order_relaxed)),
-		globalExplicitConsumerOffset(other.globalExplicitConsumerOffset.load(std::memory_order_relaxed))
+		globalExplicitConsumerOffset(other.globalExplicitConsumerOffset.load(std::memory_order_relaxed)),
+        maxItemCount(other.maxItemCount.load(std::memory_order_relaxed))
 	{
 		// Move the other one into this, and leave the other one as an empty queue
 		implicitProducerHashResizeInProgress.clear(std::memory_order_relaxed);
@@ -927,6 +930,7 @@ public:
 		other.producerCount.store(0, std::memory_order_relaxed);
 		other.nextExplicitConsumerId.store(0, std::memory_order_relaxed);
 		other.globalExplicitConsumerOffset.store(0, std::memory_order_relaxed);
+		other.maxItemCount.store(0, std::memory_order_relaxed);
 		
 #ifdef MOODYCAMEL_QUEUE_INTERNAL_DEBUG
 		explicitProducers.store(other.explicitProducers.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -972,6 +976,7 @@ private:
 		freeList.swap(other.freeList);
 		details::swap_relaxed(nextExplicitConsumerId, other.nextExplicitConsumerId);
 		details::swap_relaxed(globalExplicitConsumerOffset, other.globalExplicitConsumerOffset);
+		details::swap_relaxed(maxItemCount, other.maxItemCount);
 		
 		swap_implicit_producer_hashes(other);
 		
@@ -995,7 +1000,12 @@ public:
 	inline bool enqueue(T const& item)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue<CanAlloc>(item);
+        maxItemCount ++;
+        if (!inner_enqueue<CanAlloc>(item)) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by moving it, if possible).
@@ -1006,7 +1016,12 @@ public:
 	inline bool enqueue(T&& item)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue<CanAlloc>(std::move(item));
+        maxItemCount ++;
+        if (!inner_enqueue<CanAlloc>(std::move(item))) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by copying it) using an explicit producer token.
@@ -1015,7 +1030,12 @@ public:
 	// Thread-safe.
 	inline bool enqueue(producer_token_t const& token, T const& item)
 	{
-		return inner_enqueue<CanAlloc>(token, item);
+        maxItemCount ++;
+        if (!inner_enqueue<CanAlloc>(token, item)) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by moving it, if possible) using an explicit producer token.
@@ -1024,7 +1044,12 @@ public:
 	// Thread-safe.
 	inline bool enqueue(producer_token_t const& token, T&& item)
 	{
-		return inner_enqueue<CanAlloc>(token, std::move(item));
+        maxItemCount ++;
+        if (!inner_enqueue<CanAlloc>(token, std::move(item))) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues several items.
@@ -1037,7 +1062,12 @@ public:
 	bool enqueue_bulk(It itemFirst, size_t count)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue_bulk<CanAlloc>(itemFirst, count);
+        maxItemCount += count;
+        if (!inner_enqueue_bulk<CanAlloc>(itemFirst, count)) {
+            maxItemCount -= count;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues several items using an explicit producer token.
@@ -1049,7 +1079,12 @@ public:
 	template<typename It>
 	bool enqueue_bulk(producer_token_t const& token, It itemFirst, size_t count)
 	{
-		return inner_enqueue_bulk<CanAlloc>(token, itemFirst, count);
+        maxItemCount += count;
+        if (!inner_enqueue_bulk<CanAlloc>(token, itemFirst, count)) {
+            maxItemCount -= count;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by copying it).
@@ -1060,7 +1095,12 @@ public:
 	inline bool try_enqueue(T const& item)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue<CannotAlloc>(item);
+        maxItemCount ++;
+        if (!inner_enqueue<CannotAlloc>(item)) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by moving it, if possible).
@@ -1071,7 +1111,12 @@ public:
 	inline bool try_enqueue(T&& item)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue<CannotAlloc>(std::move(item));
+        maxItemCount ++;
+        if (!inner_enqueue<CannotAlloc>(std::move(item))) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by copying it) using an explicit producer token.
@@ -1079,7 +1124,12 @@ public:
 	// Thread-safe.
 	inline bool try_enqueue(producer_token_t const& token, T const& item)
 	{
-		return inner_enqueue<CannotAlloc>(token, item);
+        maxItemCount ++;
+        if (!inner_enqueue<CannotAlloc>(token, item)) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues a single item (by moving it, if possible) using an explicit producer token.
@@ -1087,7 +1137,12 @@ public:
 	// Thread-safe.
 	inline bool try_enqueue(producer_token_t const& token, T&& item)
 	{
-		return inner_enqueue<CannotAlloc>(token, std::move(item));
+        maxItemCount ++;
+        if (!inner_enqueue<CannotAlloc>(token, std::move(item))) {
+            maxItemCount --;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues several items.
@@ -1101,7 +1156,12 @@ public:
 	bool try_enqueue_bulk(It itemFirst, size_t count)
 	{
 		MOODYCAMEL_CONSTEXPR_IF (INITIAL_IMPLICIT_PRODUCER_HASH_SIZE == 0) return false;
-		else return inner_enqueue_bulk<CannotAlloc>(itemFirst, count);
+        maxItemCount += count;
+        if (!inner_enqueue_bulk<CannotAlloc>(itemFirst, count)) {
+            maxItemCount -= count;
+            return false;
+        }
+        return true;
 	}
 	
 	// Enqueues several items using an explicit producer token.
@@ -1112,7 +1172,12 @@ public:
 	template<typename It>
 	bool try_enqueue_bulk(producer_token_t const& token, It itemFirst, size_t count)
 	{
-		return inner_enqueue_bulk<CannotAlloc>(token, itemFirst, count);
+        maxItemCount += count;
+        if (!inner_enqueue_bulk<CannotAlloc>(token, itemFirst, count)) {
+            maxItemCount -= count;
+            return false;
+        }
+        return true;
 	}
 	
 	
@@ -1144,10 +1209,12 @@ public:
 		// we try to dequeue from it, we need to make sure every queue's been tried
 		if (nonEmptyCount > 0) {
 			if ((details::likely)(best->dequeue(item))) {
+                maxItemCount --;
 				return true;
 			}
 			for (auto ptr = producerListTail.load(std::memory_order_acquire); ptr != nullptr; ptr = ptr->next_prod()) {
 				if (ptr != best && ptr->dequeue(item)) {
+                    maxItemCount --;
 					return true;
 				}
 			}
@@ -1169,6 +1236,7 @@ public:
 	{
 		for (auto ptr = producerListTail.load(std::memory_order_acquire); ptr != nullptr; ptr = ptr->next_prod()) {
 			if (ptr->dequeue(item)) {
+                maxItemCount --;
 				return true;
 			}
 		}
@@ -1200,6 +1268,7 @@ public:
 			if (++token.itemsConsumedFromCurrent == EXPLICIT_CONSUMER_CONSUMPTION_QUOTA_BEFORE_ROTATE) {
 				globalExplicitConsumerOffset.fetch_add(1, std::memory_order_relaxed);
 			}
+            maxItemCount --;
 			return true;
 		}
 		
@@ -1212,6 +1281,7 @@ public:
 			if (ptr->dequeue(item)) {
 				token.currentProducer = ptr;
 				token.itemsConsumedFromCurrent = 1;
+                maxItemCount --;
 				return true;
 			}
 			ptr = ptr->next_prod();
@@ -1237,6 +1307,7 @@ public:
 				break;
 			}
 		}
+        maxItemCount -= count;
 		return count;
 	}
 	
@@ -1259,6 +1330,7 @@ public:
 			if ((token.itemsConsumedFromCurrent += static_cast<std::uint32_t>(max)) >= EXPLICIT_CONSUMER_CONSUMPTION_QUOTA_BEFORE_ROTATE) {
 				globalExplicitConsumerOffset.fetch_add(1, std::memory_order_relaxed);
 			}
+            maxItemCount -= max;
 			return max;
 		}
 		token.itemsConsumedFromCurrent += static_cast<std::uint32_t>(count);
@@ -1285,6 +1357,7 @@ public:
 				ptr = tail;
 			}
 		}
+        maxItemCount -= count;
 		return count;
 	}
 	
@@ -1299,7 +1372,11 @@ public:
 	template<typename U>
 	inline bool try_dequeue_from_producer(producer_token_t const& producer, U& item)
 	{
-		return static_cast<ExplicitProducer*>(producer.producer)->dequeue(item);
+		if (static_cast<ExplicitProducer*>(producer.producer)->dequeue(item)) {
+            maxItemCount --;
+            return true;
+        }
+        return false;
 	}
 	
 	// Attempts to dequeue several elements from a specific producer's inner queue.
@@ -1312,7 +1389,9 @@ public:
 	template<typename It>
 	inline size_t try_dequeue_bulk_from_producer(producer_token_t const& producer, It itemFirst, size_t max)
 	{
-		return static_cast<ExplicitProducer*>(producer.producer)->dequeue_bulk(itemFirst, max);
+		size_t count = static_cast<ExplicitProducer*>(producer.producer)->dequeue_bulk(itemFirst, max);
+        maxItemCount -= count;
+        return count;
 	}
 	
 	
@@ -1330,7 +1409,11 @@ public:
 		}
 		return size;
 	}
-	
+
+    inline size_t size_max() const
+    {
+        return maxItemCount;
+    }
 	
 	// Returns true if the underlying atomic variables used by
 	// the queue are lock-free (they should be on most platforms).
@@ -3677,6 +3760,8 @@ private:
 	std::atomic<ExplicitProducer*> explicitProducers;
 	std::atomic<ImplicitProducer*> implicitProducers;
 #endif
+
+    std::atomic<size_t> maxItemCount;
 };
 
 

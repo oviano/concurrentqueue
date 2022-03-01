@@ -540,6 +540,10 @@ public:
 		return (size_t)sema->availableApprox();
 	}
 	
+    inline size_t size_max() const
+    {
+        return inner.size_max();
+    }
 	
 	// Returns true if the underlying atomic variables used by
 	// the queue are lock-free (they should be on most platforms).
