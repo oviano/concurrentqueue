@@ -8,8 +8,20 @@
 #include <cstddef> // For std::size_t
 #include <atomic>
 #include <type_traits> // For std::make_signed<T>
+#include <cassert>
 
 #if defined(_WIN32)
+
+// VS2012 doesn't support deleted functions. 
+// In this case, we declare the function normally but don't define it. A link error will be generated if the function is called.
+#ifndef MOODYCAMEL_DELETE_FUNCTION
+#if defined(_MSC_VER) && _MSC_VER < 1800
+#define MOODYCAMEL_DELETE_FUNCTION
+#else
+#define MOODYCAMEL_DELETE_FUNCTION = delete
+#endif
+#endif
+
 // Avoid including windows.h in a header; we only need a handful of
 // items, so we'll redeclare them here (this is relatively safe since
 // the API generally has to remain stable between Windows versions).
