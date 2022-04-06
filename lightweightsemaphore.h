@@ -10,8 +10,6 @@
 #include <type_traits> // For std::make_signed<T>
 #include <cassert>
 
-#if defined(_WIN32)
-
 // VS2012 doesn't support deleted functions. 
 // In this case, we declare the function normally but don't define it. A link error will be generated if the function is called.
 #ifndef MOODYCAMEL_DELETE_FUNCTION
@@ -22,6 +20,7 @@
 #endif
 #endif
 
+#if defined(_WIN32)
 // Avoid including windows.h in a header; we only need a handful of
 // items, so we'll redeclare them here (this is relatively safe since
 // the API generally has to remain stable between Windows versions).
